@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import Ska.engarchive.fetch as fetch
 from Ska.Matplotlib import plot_cxctime
 from Quaternion import Quat
-import Ska.DBI
 from quatutil import yagzag2radec
+from Chandra.Time import DateTime
 
 pcad_msids = ['aoacfct',
               'aoacicc',
@@ -18,61 +18,61 @@ pcad_msids = ['aoacfct',
               'aoaczan',
               'aoimage']
 
-slots = [6]
-slot_msids = [msid + "%s" % slot for slot in slots for msid in pcad_msids]
 
-msids = ['aopcadmd',
-         'aoattqt1',
-         'aoattqt2',
-         'aoattqt3',
-         'aoattqt4',
-         ]
+def plot_centroid_resids_by_flag(start, stop, slot, save=False):
+    slot_msids = [msid + "%s" % slot for msid in pcad_msids]
 
-msids.extend(slot_msids)
+    msids = ['aopcadmd',
+             'aoattqt1',
+             'aoattqt2',
+             'aoattqt3',
+             'aoattqt4',
+             ]
 
-obsid = 15304  # 95 second drop on 2013:104:23:40:08.  See also obsid 56345.
-obsid = 15175
-obsid = 56345
+    msids.extend(slot_msids)
 
-db = Ska.DBI.DBI(dbi='sybase', server='sybase', user='aca_read')
-if 'obs' not in globals():
-    obs = db.fetchall("""select obsid, kalman_datestart, kalman_datestop
-    from observations where obsid = {}""".format(obsid))[0]
-
-if 'telem' not in globals():
+    print('Fetching telemetry from {} to {}'.format(start, stop))
     telem = fetch.MSIDset(msids,
-                          obs['kalman_datestart'],
-                          obs['kalman_datestop'],
+                          start,
+                          stop,
                           filter_bad=True,
                           )
-telem.interpolate(dt=2.05)
+    telem.interpolate(dt=2.05)
 
-slot = 6
-vals = ([telem['aoattqt%d' % i].vals for i in range(1, 5)]
-        + [telem['aoacyan{}'.format(slot)].vals / 3600.,
-           telem['aoaczan{}'.format(slot)].vals / 3600.])
-if 'coords' not in globals():
+    vals = ([telem['aoattqt%d' % i].vals for i in range(1, 5)]
+            + [telem['aoacyan{}'.format(slot)].vals / 3600.,
+               telem['aoaczan{}'.format(slot)].vals / 3600.])
+
+    print('Interpolating quaternions')
     radecs = [yagzag2radec(yag, zag, Quat([q1, q2, q3, q4]))
               for q1, q2, q3, q4, yag, zag in zip(*vals)]
     coords = np.rec.fromrecords(radecs, names=('ra', 'dec'))
 
+    ok = telem['aoacfct{}'.format(slot)].vals == 'TRAK'
 
-ok = telem['aoacfct{}'.format(slot)].vals == 'TRAK'
+    flags = {'dp': telem['aoacidp%s' % slot].vals != 'OK ',
+             'ir': telem['aoaciir%s' % slot].vals != 'OK ',
+             'ms': telem['aoacims%s' % slot].vals != 'OK ',
+             'sp': telem['aoacisp%s' % slot].vals != 'OK ',
+             }
 
-flags = {'dp': telem['aoacidp%s' % slot].vals != 'OK ',
-         'ir': telem['aoaciir%s' % slot].vals != 'OK ',
-         'ms': telem['aoacims%s' % slot].vals != 'OK ',
-         'sp': telem['aoacisp%s' % slot].vals != 'OK ',
-         }
+    times = telem['aoacyan%s' % slot].times
+    dra = (coords['ra'] - np.mean(coords['ra'][ok])) * 3600 * np.cos(np.radians(coords['dec']))
+    ddec = (coords['dec'] - np.mean(coords['dec'][ok])) * 3600
+    dr = np.sqrt(dra ** 2 + ddec ** 2)
 
-color = {'dp': 'blue',
-         'ir': 'red',
-         'ms': 'green',
-         'sp': 'orange'
-         }
+    fileroot = 'flags_{}'.format(DateTime(start).date[:14]) if save else None
+
+    print('Making plots with output fileroot={}'.format(fileroot))
+    for dp in (False, True):
+        for ir in (False, True):
+            for ms in (False, True):
+                for sp in (False, True):
+                    print('Making plot for dp={} ir={} ms={} sp={}'.format(dp, ir, ms, sp))
+                    plot_axis('dR', times, dr, ok, dp, ir, ms, sp, flags, filename=fileroot)
 
 
-def plot_axis(label, dy, ok, dp, ir, ms, sp, filename=None):
+def plot_axis(label, times, dy, ok, dp, ir, ms, sp, flags, filename=None):
     plt.figure(figsize=(6, 4))
     plt.clf()
     filt = (ok & (flags['dp'] == dp) & (flags['ir'] == ir)
@@ -89,18 +89,3 @@ def plot_axis(label, dy, ok, dp, ir, ms, sp, filename=None):
     if filename is not None:
         ext = str(dp)[0] + str(ir)[0] + str(ms)[0] + str(sp)[0]
         plt.savefig(filename + ext + '.png')
-
-times = telem['aoacyan%s' % slot].times
-dra = (coords['ra'] - np.mean(coords['ra'][ok])) * 3600 * np.cos(np.radians(coords['dec']))
-ddec = (coords['dec'] - np.mean(coords['dec'][ok])) * 3600
-
-for dp in (False, True):
-    for ir in (False, True):
-        for ms in (False, True):
-            for sp in (False, True):
-                plot_axis('RA', dra, ok, dp, ir, ms, sp, '{}/flags_ra_'.format(obsid))
-
-
-# plot_axis('Dec', ddec, 'delta_dec.png')
-# plot_axis('RA', dra, None)
-# plot_axis('Dec', ddec, None)
