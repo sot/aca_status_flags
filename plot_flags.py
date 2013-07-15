@@ -20,6 +20,18 @@ pcad_msids = ['aoacfct',
 
 
 def plot_centroid_resids_by_flag(start, stop, slot, save=False):
+    """
+    Plot centroid residuals for a start/stop interval with color
+    coding to indicate readouts corresponding to a particular
+    combination of DP, IR, MS, and SP.  The specified interval
+    must be a stable Kalman dwell at one attitude.
+
+    :param start: start time (any Chandra DateTime format)
+    :param stop: stop time
+    :param slot: ACA image slot
+    :param save: save images as png files
+    """
+
     slot_msids = [msid + "%s" % slot for msid in pcad_msids]
 
     msids = ['aopcadmd',
