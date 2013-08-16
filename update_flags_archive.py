@@ -55,6 +55,7 @@ def get_archive_data(start, stop):
 
     msids = slot_msids + att_msids
 
+    # Get telemetry
     logger.info('Fetching telemetry from {} to {}'.format(start.date[:17], stop.date[:17]))
     telems = fetch.MSIDset(msids, start, stop)
     start_interp = max(telems[msid].times[0] for msid in msids)
@@ -63,8 +64,15 @@ def get_archive_data(start, stop):
                 .format(DateTime(start_interp).date[:17], DateTime(stop_interp).date[:17]))
     telems.interpolate(dt=2.05, start=start_interp, stop=stop_interp, filter_bad=False)
 
+    # Select intervals within a kalman dwell with no tsc_moves or dumps
+    events.dumps.interval_pad = (10, 500)
+    events.tsc_moves.interval_pad = (10, 300)
+    good_times = events.dwells & ~(events.tsc_moves | events.dumps)
+    for msid in telems:
+        telems[msid].select_intervals(good_times)
+
     # Create a bad filter for any samples with no attitude value
-    att_bads = np.zeros(len(telems.times), dtype=bool)
+    att_bads = np.zeros(len(telems[att_msids[0]]), dtype=bool)
     for msid in att_msids:
         att_bads |= telems[msid].bads
     for msid in att_msids:
@@ -170,15 +178,15 @@ def plot_obsid(obsid, dt=3.0):
     Some obsids seem to prefer 2.0, others 3.0.
     """
     obsids = events.obsids.filter(obsid__exact=obsid)
+    if len(obsids) == 0:
+        raise ValueError('No obsid={} in kadi database'.format(obsid))
+
     dwells = events.dwells.filter(obsids[0].start, obsids[0].stop)
     obsid_dwells = [dwell for dwell in dwells if dwell.start > obsids[0].start]
-    if len(obsid_dwells) > 1:
-        logger.warning('Multiple obsid dwells, using first: \n{}'
-                       .format('\n'.join(str(dwell) for dwell in obsid_dwells)))
-    dwell = obsid_dwells[0]
-    logger.info('Using dwell {}'.format(dwell))
+    logger.info('Using obsid dwell(s): {}'
+                .format(','.join(str(dwell) for dwell in obsid_dwells)))
 
-    telems, slots = get_archive_data(dwell.start, dwell.stop)
+    telems, slots = get_archive_data(obsid_dwells[0].start, obsid_dwells[-1].stop)
     plt.clf()
     for slot in slots:
         dyag, dzag = calc_delta_centroids(telems, slot, dt)
@@ -189,7 +197,7 @@ def plot_obsid(obsid, dt=3.0):
         z_sig = (p84 - p16) / 2
         logger.info('Slot {}: yag_sigma={:.2f} zag_sigma={:.2f}'.format(slot, y_sig, z_sig))
     plt.grid()
-    plt.ylim(-1.0, 1.0)
+    plt.ylim(-3.0, 3.0)
     plt.show()
 
 
