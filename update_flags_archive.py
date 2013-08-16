@@ -170,7 +170,7 @@ def calc_delta_centroids(telems, slot, dt=3.0):
     return d_yags * 3600, d_zags * 3600
 
 
-def get_obsid(obsid):
+def get_obsid(obsid, dt=3.0):
     """
     Get an obsid
     """
@@ -191,6 +191,8 @@ def get_obsid(obsid):
     out['times'] = {}
     out['vals'] = {}
     out['slots'] = slots
+    out['dyag'] = {}
+    out['dzag'] = {}
 
     for msid in ATT_MSIDS:
         out['times'][msid] = np.array(telems[msid].times - time0, dtype=np.float32)
@@ -201,9 +203,15 @@ def get_obsid(obsid):
         out['vals'][pcad_msid] = {}
         for slot in slots:
             msid = pcad_msid + str(slot)
-            out['times'][slot] = np.array(telems[msid].times - time0, dtype=np.float32)
+            out['times'][pcad_msid][slot] = np.array(telems[msid].times - time0, dtype=np.float32)
             tlmsid = telems[msid]
-            out['vals'][slot] = (tlmsid.vals if tlmsid.raw_vals is None else tlmsid.raw_vals)
+            out['vals'][pcad_msid][slot] = (tlmsid.vals if tlmsid.raw_vals is None
+                                            else tlmsid.raw_vals)
+
+    for slot in slots:
+        dyag, dzag = calc_delta_centroids(telems, slot, dt)
+        out['dyag'][slot] = np.array(dyag, dtype=np.float32)
+        out['dzag'][slot] = np.array(dzag, dtype=np.float32)
 
     return out, telems
 
@@ -219,7 +227,8 @@ def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None):
 
     plt.clf()
     for slot in dat['slots']:
-        dyag, dzag = calc_delta_centroids(telems, slot, dt)
+        dyag = dat['dyag'][slot]
+        dzag = dat['dzag'][slot]
         ok = np.ones(len(dyag), dtype=bool)
         flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
         for flag in flag_vals:
@@ -242,8 +251,6 @@ def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None):
     plt.grid()
     plt.ylim(-5.0, 5.0)
     plt.show()
-
-    return telems
 
 
 def other():
