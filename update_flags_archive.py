@@ -150,7 +150,7 @@ def radec2yagzag(ra, dec, transforms_transpose):
     return yag, zag
 
 
-def calc_delta_centroids(telems, slot, dt):
+def calc_delta_centroids(telems, slot, dt=3.0):
     yags = telems['aoacyan{}'.format(slot)].vals / 3600.
     zags = telems['aoaczan{}'.format(slot)].vals / 3600.
     q_atts, transforms = get_q_atts_transforms(telems, slot, dt=dt)
@@ -170,7 +170,7 @@ def calc_delta_centroids(telems, slot, dt):
     return d_yags * 3600, d_zags * 3600
 
 
-def plot_obsid(obsid, dt=3.0):
+def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None):
     """
     The value of 3.0 was semi-empirically derived as the value which minimizes
     the centroid spreads for a few obsids.  It also corresponds roughly to
@@ -187,18 +187,34 @@ def plot_obsid(obsid, dt=3.0):
                 .format(','.join(str(dwell) for dwell in obsid_dwells)))
 
     telems, slots = get_archive_data(obsid_dwells[0].start, obsid_dwells[-1].stop)
+
     plt.clf()
     for slot in slots:
         dyag, dzag = calc_delta_centroids(telems, slot, dt)
-        plt.plot(dzag, ',')
-        p16, p84 = np.percentile(dyag, [15.87, 84.13])
-        y_sig = (p84 - p16) / 2
-        p16, p84 = np.percentile(dzag, [15.87, 84.13])
-        z_sig = (p84 - p16) / 2
-        logger.info('Slot {}: yag_sigma={:.2f} zag_sigma={:.2f}'.format(slot, y_sig, z_sig))
+        ok = np.ones(len(dyag), dtype=bool)
+        flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
+        for flag in flag_vals:
+            if flag_vals[flag] is not None:
+                match_val = ('ERR' if flag_vals[flag] else 'OK ')
+                ok &= telems['aoaci{}{}'.format(flag, slot)].vals == match_val
+        if np.any(ok):
+            times = telems['aoacyan{}'.format(slot)].times[ok]
+            dyag = dyag[ok]
+            dzag = dzag[ok]
+            plot_cxctime(times, dzag, '.', ms=1.0)
+            p16, p84 = np.percentile(dyag, [15.87, 84.13])
+            y_sig = (p84 - p16) / 2
+            p16, p84 = np.percentile(dzag, [15.87, 84.13])
+            z_sig = (p84 - p16) / 2
+            logger.info('Slot {}: {} values: yag_sigma={:.2f} zag_sigma={:.2f}'
+                        .format(slot, np.sum(ok), y_sig, z_sig))
+        else:
+            logger.info('Slot {}: no data values selected')
     plt.grid()
-    plt.ylim(-3.0, 3.0)
+    plt.ylim(-5.0, 5.0)
     plt.show()
+
+    return telems
 
 
 def other():
