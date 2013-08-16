@@ -13,6 +13,20 @@ import pyyaks.logger
 import Ska.Numpy
 
 logger = pyyaks.logger.get_logger()
+PCAD_MSIDS = ['aoacfct',
+              'aoacisp',
+              'aoacidp',
+              'aoaciir',
+              'aoacims',
+              'aoacyan',
+              'aoaczan']
+ATT_MSIDS = ['aoattqt1',
+             'aoattqt2',
+             'aoattqt3',
+             'aoattqt4',
+             ]
+
+
 
 
 def get_archive_data(start, stop):
@@ -38,22 +52,8 @@ def get_archive_data(start, stop):
             slots.remove(ii)
     logger.info('Using slots {}'.format(slots))
 
-    pcad_msids = ['aoacfct',
-                  'aoacisp',
-                  'aoacidp',
-                  'aoaciir',
-                  'aoacims',
-                  'aoacyan',
-                  'aoaczan']
-    slot_msids = [msid + "%s" % slot for msid in pcad_msids for slot in slots]
-
-    att_msids = ['aoattqt1',
-                 'aoattqt2',
-                 'aoattqt3',
-                 'aoattqt4',
-                 ]
-
-    msids = slot_msids + att_msids
+    slot_msids = [msid + "%s" % slot for msid in PCAD_MSIDS for slot in slots]
+    msids = slot_msids + ATT_MSIDS
 
     # Get telemetry
     logger.info('Fetching telemetry from {} to {}'.format(start.date[:17], stop.date[:17]))
@@ -72,17 +72,17 @@ def get_archive_data(start, stop):
         telems[msid].select_intervals(good_times)
 
     # Create a bad filter for any samples with no attitude value
-    att_bads = np.zeros(len(telems[att_msids[0]]), dtype=bool)
-    for msid in att_msids:
+    att_bads = np.zeros(len(telems[ATT_MSIDS[0]]), dtype=bool)
+    for msid in ATT_MSIDS:
         att_bads |= telems[msid].bads
-    for msid in att_msids:
+    for msid in ATT_MSIDS:
         telems[msid].bads = att_bads
     logger.info('Attitude: found {} / {} bad values'
                 .format(np.sum(att_bads), len(att_bads)))
 
     # Create a bad filter for each slot based on the union of all relevant MSIDs
     for slot in slots:
-        slot_msids = [msid + "%s" % slot for msid in pcad_msids]
+        slot_msids = [msid + "%s" % slot for msid in PCAD_MSIDS]
         slot_bads = att_bads.copy()  # start with attitude bad values
         for msid in slot_msids:
             slot_bads |= telems[msid].bads
@@ -170,12 +170,9 @@ def calc_delta_centroids(telems, slot, dt=3.0):
     return d_yags * 3600, d_zags * 3600
 
 
-def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None):
+def get_obsid(obsid):
     """
-    The value of 3.0 was semi-empirically derived as the value which minimizes
-    the centroid spreads for a few obsids.  It also corresponds roughly to
-    2.05 + (2.05 - 1.7 / 2) which could be the center of the ACA integration.
-    Some obsids seem to prefer 2.0, others 3.0.
+    Get an obsid
     """
     obsids = events.obsids.filter(obsid__exact=obsid)
     if len(obsids) == 0:
@@ -188,8 +185,40 @@ def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None):
 
     telems, slots = get_archive_data(obsid_dwells[0].start, obsid_dwells[-1].stop)
 
+    out = {}
+    time0 = telems.times[0]
+    out['time0'] = time0
+    out['times'] = {}
+    out['vals'] = {}
+    out['slots'] = slots
+
+    for msid in ATT_MSIDS:
+        out['times'][msid] = np.array(telems[msid].times - time0, dtype=np.float32)
+        out['vals'][msid] = telems[msid].vals
+
+    for pcad_msid in PCAD_MSIDS:
+        out['times'][pcad_msid] = {}
+        out['vals'][pcad_msid] = {}
+        for slot in slots:
+            msid = pcad_msid + str(slot)
+            out['times'][slot] = np.array(telems[msid].times - time0, dtype=np.float32)
+            tlmsid = telems[msid]
+            out['vals'][slot] = (tlmsid.vals if tlmsid.raw_vals is None else tlmsid.raw_vals)
+
+    return out, telems
+
+
+def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None):
+    """
+    The value of 3.0 was semi-empirically derived as the value which minimizes
+    the centroid spreads for a few obsids.  It also corresponds roughly to
+    2.05 + (2.05 - 1.7 / 2) which could be the center of the ACA integration.
+    Some obsids seem to prefer 2.0, others 3.0.
+    """
+    dat, telems = get_obsid(obsid)
+
     plt.clf()
-    for slot in slots:
+    for slot in dat['slots']:
         dyag, dzag = calc_delta_centroids(telems, slot, dt)
         ok = np.ones(len(dyag), dtype=bool)
         flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
