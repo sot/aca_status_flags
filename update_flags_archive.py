@@ -10,6 +10,7 @@ from Ska.Matplotlib import plot_cxctime
 from Quaternion import Quat, normalize
 from Chandra.Time import DateTime
 import pyyaks.logger
+import Ska.Numpy
 
 logger = pyyaks.logger.get_logger()
 
@@ -68,7 +69,6 @@ def get_archive_data(start, stop):
         att_bads |= telems[msid].bads
     for msid in att_msids:
         telems[msid].bads = att_bads
-        telems[msid].vals[att_bads] = 0.5  # Insert a bogus value, this att filtered later.
     logger.info('Attitude: found {} / {} bad values'
                 .format(np.sum(att_bads), len(att_bads)))
 
@@ -89,16 +89,26 @@ def get_archive_data(start, stop):
 
     # Finally apply the filtering for each MSID invidivually (note that the
     # MSIDset.filter_bad() method isn't appropriate here).
-    # for msid in msids:
-    #    telems[msid].filter_bad()
+    for msid in msids:
+        telems[msid].filter_bad()
 
     return telems, slots
 
 
-def get_quat_transforms(telems):
-    qs = np.empty((len(telems.times), 4), dtype=np.float64)
+def get_q_atts_transforms(telems, slot, dt):
+    """
+    Get quaternions and associated transforms, matched to the times of yag/zag data
+    in slot.  Apply a time offset ``dt`` to account for latencies in telemetry
+    and ACA image readout.
+    """
+    logger.verbose('Interpolating quaternions for slot {}'.format(slot))
+    yz_times = telems['aoacyan{}'.format(slot)].times
+    q_times = telems['aoattqt1'].times
+    qs = np.empty((len(yz_times), 4), dtype=np.float64)
+
     for ii in range(4):
-        qs[:, ii] = telems['aoattqt{}'.format(ii + 1)].vals
+        q_vals = telems['aoattqt{}'.format(ii + 1)].vals
+        qs[:, ii] = Ska.Numpy.interpolate(q_vals, q_times + dt, yz_times, sorted=True)
     q_atts = quaternion.Quat(quaternion.normalize(qs))
     transforms = q_atts.transform  # N x 3 x 3
     return q_atts, transforms
@@ -132,42 +142,54 @@ def radec2yagzag(ra, dec, transforms_transpose):
     return yag, zag
 
 
-def calc_delta_centroids(telems, q_atts, transforms, slot):
-    ok = ~telems['aoacyan{}'.format(slot)].bads  # All slot telem MSIDs have same bads value
-    yags = telems['aoacyan{}'.format(slot)].vals[ok] / 3600.
-    zags = telems['aoaczan{}'.format(slot)].vals[ok] / 3600.
-    transforms = transforms[ok]
+def calc_delta_centroids(telems, slot, dt):
+    yags = telems['aoacyan{}'.format(slot)].vals / 3600.
+    zags = telems['aoaczan{}'.format(slot)].vals / 3600.
+    q_atts, transforms = get_q_atts_transforms(telems, slot, dt=dt)
 
-    n_mid = len(telems.times) // 2
-    q_att0 = quaternion.Quat(q_atts.q[ok][n_mid])
+    n_mid = len(q_atts.q) // 2
+    q_att0 = quaternion.Quat(q_atts.q[n_mid])
     ra0, dec0 = yagzag2radec(yags[n_mid], zags[n_mid], q_att0)
 
     transforms_transpose = transforms.transpose(0, 2, 1)
-    print('Interpolating quaternions')
 
     p_yags, p_zags = radec2yagzag(ra0, dec0, transforms_transpose)
     d_yags = p_yags - yags
     d_zags = p_zags - zags
+    d_yags = d_yags - np.median(d_yags)
+    d_zags = d_zags - np.median(d_zags)
+
     return d_yags * 3600, d_zags * 3600
 
 
-def plot_obsid(obsid):
+def plot_obsid(obsid, dt=3.0):
+    """
+    The value of 3.0 was semi-empirically derived as the value which minimizes
+    the centroid spreads for a few obsids.  It also corresponds roughly to
+    2.05 + (2.05 - 1.7 / 2) which could be the center of the ACA integration.
+    Some obsids seem to prefer 2.0, others 3.0.
+    """
     obsids = events.obsids.filter(obsid__exact=obsid)
     dwells = events.dwells.filter(obsids[0].start, obsids[0].stop)
     obsid_dwells = [dwell for dwell in dwells if dwell.start > obsids[0].start]
     if len(obsid_dwells) > 1:
         logger.warning('Multiple obsid dwells, using first: \n{}'
-                       .format('\n'.join(str(dwell for dwell in obsid_dwells))))
+                       .format('\n'.join(str(dwell) for dwell in obsid_dwells)))
     dwell = obsid_dwells[0]
     logger.info('Using dwell {}'.format(dwell))
 
     telems, slots = get_archive_data(dwell.start, dwell.stop)
-    q_atts, transforms = get_quat_transforms(telems)
     plt.clf()
     for slot in slots:
-        dyag, dzag = calc_delta_centroids(telems, q_atts, transforms, slot)
+        dyag, dzag = calc_delta_centroids(telems, slot, dt)
         plt.plot(dzag, ',')
+        p16, p84 = np.percentile(dyag, [15.87, 84.13])
+        y_sig = (p84 - p16) / 2
+        p16, p84 = np.percentile(dzag, [15.87, 84.13])
+        z_sig = (p84 - p16) / 2
+        logger.info('Slot {}: yag_sigma={:.2f} zag_sigma={:.2f}'.format(slot, y_sig, z_sig))
     plt.grid()
+    plt.ylim(-1.0, 1.0)
     plt.show()
 
 
