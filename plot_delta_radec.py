@@ -30,9 +30,10 @@ msids = ['aopcadmd',
 
 msids.extend(slot_msids)
 
+obsid = '13272'
 obsid = '56345'
 
-db = Ska.DBI.DBI(dbi='sybase', server='sybase')
+db = Ska.DBI.DBI(dbi='sybase', server='sybase', user='aca_read')
 if 'obs' not in globals():
     obs = db.fetchall("""select obsid, kalman_datestart, kalman_datestop
     from observations where obsid = %s""" % obsid)[0]
