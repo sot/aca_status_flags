@@ -1,5 +1,8 @@
 from __future__ import division
 
+import cPickle as pickle
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -14,6 +17,7 @@ import Ska.Numpy
 
 logger = pyyaks.logger.get_logger()
 PCAD_MSIDS = ['aoacfct',
+              'aoacmag',
               'aoacisp',
               'aoacidp',
               'aoaciir',
@@ -25,8 +29,6 @@ ATT_MSIDS = ['aoattqt1',
              'aoattqt3',
              'aoattqt4',
              ]
-
-
 
 
 def get_archive_data(start, stop):
@@ -216,40 +218,70 @@ def get_obsid(obsid, dt=3.0):
     return out, telems
 
 
-def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None):
+def process_obsids(start, stop):
+    obsids = events.obsids.filter(start, stop)
+    for obsid_event in obsids:
+        obsid = obsid_event.obsid
+        filename = os.path.join('data', str(obsid) + '.pkl')
+        if os.path.exists(filename):
+            logger.info('Skipping obsid {}, file exists'.format(obsid))
+            continue
+        else:
+            logger.info('Processing obsid {}'.format(obsid))
+
+        try:
+            dat, telems = get_obsid(obsid)
+        except Exception as err:
+            logger.error('ERROR in obsid {}: {}'.format(obsid, err))
+        else:
+            pickle.dump(dat, open(filename, 'w'), protocol=-1)
+            logger.info('Success for {}'.format(obsid))
+
+
+def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None, slots=None):
     """
     The value of 3.0 was semi-empirically derived as the value which minimizes
     the centroid spreads for a few obsids.  It also corresponds roughly to
     2.05 + (2.05 - 1.7 / 2) which could be the center of the ACA integration.
     Some obsids seem to prefer 2.0, others 3.0.
     """
-    dat, telems = get_obsid(obsid)
+    filename = os.path.join('data', str(obsid) + '.pkl')
+    if os.path.exists(filename):
+        dat = pickle.load(open(filename, 'r'))
+    else:
+        dat, telems = get_obsid(obsid)
+        pickle.dump(dat, open(filename, 'w'), protocol=-1)
+        logger.info('Wrote data for {}'.format(obsid))
 
     plt.clf()
-    for slot in dat['slots']:
+    for slot in slots or dat['slots']:
         dyag = dat['dyag'][slot]
         dzag = dat['dzag'][slot]
         ok = np.ones(len(dyag), dtype=bool)
         flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
         for flag in flag_vals:
             if flag_vals[flag] is not None:
-                match_val = ('ERR' if flag_vals[flag] else 'OK ')
-                ok &= telems['aoaci{}{}'.format(flag, slot)].vals == match_val
+                msid = 'aoaci{}'.format(flag)
+                match_val = (1 if flag_vals[flag] else 0)
+                ok &= dat['vals'][msid][slot] == match_val
         if np.any(ok):
-            times = telems['aoacyan{}'.format(slot)].times[ok]
+            times = dat['times']['aoacyan'][slot][ok]
             dyag = dyag[ok]
             dzag = dzag[ok]
-            plot_cxctime(times, dzag, '.', ms=1.0)
+            plt.plot(times, dzag, '.', ms=2.0)
             p16, p84 = np.percentile(dyag, [15.87, 84.13])
             y_sig = (p84 - p16) / 2
+            y_std = np.std(dyag)
             p16, p84 = np.percentile(dzag, [15.87, 84.13])
             z_sig = (p84 - p16) / 2
-            logger.info('Slot {}: {} values: yag_sigma={:.2f} zag_sigma={:.2f}'
-                        .format(slot, np.sum(ok), y_sig, z_sig))
+            z_std = np.std(dzag)
+            logger.info('Slot {}: {} values: y_sig={:.2f} y_std={:.2f} z_sig={:.2f} z_std={:.2f}'
+                        .format(slot, np.sum(ok), y_sig, y_std, z_sig, z_std))
         else:
             logger.info('Slot {}: no data values selected')
     plt.grid()
     plt.ylim(-5.0, 5.0)
+    plt.title('Obsid {} at {}'.format(obsid, DateTime(dat['time0']).date[:17]))
     plt.show()
 
 
