@@ -10,13 +10,19 @@ import pyyaks.logger
 logger = pyyaks.logger.get_logger(format='%(asctime)s: %(message)s')
 
 
-def plot_obsid(obsid, sp=None, dp=None, ir=None, ms=None, anyflag=None, slots=None):
-    """
-    The value of 3.0 was semi-empirically derived as the value which minimizes
-    the centroid spreads for a few obsids.  It also corresponds roughly to
-    2.05 + (2.05 - 1.7 / 2) which could be the center of the ACA integration.
-    Some obsids seem to prefer 2.0, others 3.0.
-    """
+def get_flags_match(dat, slot, sp, dp, ir, ms):
+        ok = np.ones(len(dat['dyag'][slot]), dtype=bool)
+        flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
+        for flag in flag_vals:
+            if flag_vals[flag] is not None:
+                msid = 'aoaci{}'.format(flag)
+                match_val = (1 if flag_vals[flag] else 0)
+                ok &= dat['vals'][msid][slot] == match_val
+
+        return ok
+
+
+def get_obsid_data(obsid):
     filename = os.path.join('data', str(obsid) + '.pkl')
     if os.path.exists(filename):
         dat = pickle.load(open(filename, 'r'))
@@ -26,17 +32,24 @@ def plot_obsid(obsid, sp=None, dp=None, ir=None, ms=None, anyflag=None, slots=No
         pickle.dump(dat, open(filename, 'w'), protocol=-1)
         logger.info('Wrote data for {}'.format(obsid))
 
+    return dat
+
+
+def plot_obsid(obsid, sp=None, dp=None, ir=None, ms=None, slots=None):
+    """
+    The value of 3.0 was semi-empirically derived as the value which minimizes
+    the centroid spreads for a few obsids.  It also corresponds roughly to
+    2.05 + (2.05 - 1.7 / 2) which could be the center of the ACA integration.
+    Some obsids seem to prefer 2.0, others 3.0.
+    """
+    dat = get_obsid_data(obsid)
+
     plt.clf()
     for slot in slots or dat['slots']:
         dyag = dat['dyag'][slot]
         dzag = dat['dzag'][slot]
-        ok = np.ones(len(dyag), dtype=bool)
-        flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
-        for flag in flag_vals:
-            if flag_vals[flag] is not None:
-                msid = 'aoaci{}'.format(flag)
-                match_val = (1 if flag_vals[flag] else 0)
-                ok &= dat['vals'][msid][slot] == match_val
+        ok = get_flags_match(dat, slot, sp, dp, ir, ms)
+
         if np.any(ok):
             times = dat['times']['aoacyan'][slot][ok]
             dyag = dyag[ok]
@@ -56,3 +69,7 @@ def plot_obsid(obsid, sp=None, dp=None, ir=None, ms=None, anyflag=None, slots=No
     plt.ylim(-5.0, 5.0)
     plt.title('Obsid {} at {}'.format(obsid, DateTime(dat['time0']).date[:17]))
     plt.show()
+
+
+def plot_std_change(obsid, sp=None, dp=None, ir=None, ms=None, slots=None):
+    dat = get_obsid_data(obsid)
