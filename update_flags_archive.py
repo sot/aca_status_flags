@@ -1,21 +1,21 @@
+#!/usr/bin/env python
+
 from __future__ import division
 
 import cPickle as pickle
 import os
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 from mica import quaternion
 from kadi import events
 import Ska.engarchive.fetch as fetch
-from Ska.Matplotlib import plot_cxctime
-from Quaternion import Quat, normalize
 from Chandra.Time import DateTime
 import pyyaks.logger
 import Ska.Numpy
 
-logger = pyyaks.logger.get_logger()
+logger = pyyaks.logger.get_logger(format='%(asctime)s: %(message)s')
+
 PCAD_MSIDS = ['aoacfct',
               'aoacmag',
               'aoacisp',
@@ -227,132 +227,39 @@ def process_obsids(start, stop):
             logger.info('Skipping obsid {}, file exists'.format(obsid))
             continue
         else:
+            logger.info('**********************************')
             logger.info('Processing obsid {}'.format(obsid))
+            logger.info('**********************************')
 
         try:
             dat, telems = get_obsid(obsid)
         except Exception as err:
-            logger.error('ERROR in obsid {}: {}'.format(obsid, err))
+            logger.error('ERROR in obsid {}: {}\n'.format(obsid, err))
+            open(filename + '.ERR', 'w')
         else:
             pickle.dump(dat, open(filename, 'w'), protocol=-1)
-            logger.info('Success for {}'.format(obsid))
+            logger.info('Success for {}\n'.format(obsid))
 
 
-def plot_obsid(obsid, dt=3.0, sp=None, dp=None, ir=None, ms=None, anyflag=None, slots=None):
-    """
-    The value of 3.0 was semi-empirically derived as the value which minimizes
-    the centroid spreads for a few obsids.  It also corresponds roughly to
-    2.05 + (2.05 - 1.7 / 2) which could be the center of the ACA integration.
-    Some obsids seem to prefer 2.0, others 3.0.
-    """
-    filename = os.path.join('data', str(obsid) + '.pkl')
-    if os.path.exists(filename):
-        dat = pickle.load(open(filename, 'r'))
-    else:
-        dat, telems = get_obsid(obsid)
-        pickle.dump(dat, open(filename, 'w'), protocol=-1)
-        logger.info('Wrote data for {}'.format(obsid))
+def main():
+    import argparse
 
-    plt.clf()
-    for slot in slots or dat['slots']:
-        dyag = dat['dyag'][slot]
-        dzag = dat['dzag'][slot]
-        ok = np.ones(len(dyag), dtype=bool)
-        flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
-        for flag in flag_vals:
-            if flag_vals[flag] is not None:
-                msid = 'aoaci{}'.format(flag)
-                match_val = (1 if flag_vals[flag] else 0)
-                ok &= dat['vals'][msid][slot] == match_val
-        if np.any(ok):
-            times = dat['times']['aoacyan'][slot][ok]
-            dyag = dyag[ok]
-            dzag = dzag[ok]
-            plt.plot(times, dzag, '.', ms=2.0)
-            p16, p84 = np.percentile(dyag, [15.87, 84.13])
-            y_sig = (p84 - p16) / 2
-            y_std = np.std(dyag)
-            p16, p84 = np.percentile(dzag, [15.87, 84.13])
-            z_sig = (p84 - p16) / 2
-            z_std = np.std(dzag)
-            logger.info('Slot {}: {} values: y_sig={:.2f} y_std={:.2f} z_sig={:.2f} z_std={:.2f}'
-                        .format(slot, np.sum(ok), y_sig, y_std, z_sig, z_std))
-        else:
-            logger.info('Slot {}: no data values selected')
-    plt.grid()
-    plt.ylim(-5.0, 5.0)
-    plt.title('Obsid {} at {}'.format(obsid, DateTime(dat['time0']).date[:17]))
-    plt.show()
+    now = DateTime()
+    parser = argparse.ArgumentParser(description='Process status flag data')
+    parser.add_argument('--start',
+                        type=str,
+                        default=(now - 10).date,
+                        help='Start date')
+    parser.add_argument('--stop',
+                        type=str,
+                        default=now.date,
+                        help='Stop date (default=Now)')
+    args = parser.parse_args()
+
+    start = DateTime(args.start)
+    stop = DateTime(args.stop)
+    process_obsids(start, stop)
 
 
-def other():
-    radecs = [yagzag2radec(yag, zag, Quat(normalize([q1, q2, q3, q4])))
-              for q1, q2, q3, q4, yag, zag in zip(*vals)]
-    coords = np.rec.fromrecords(radecs, names=('ra', 'dec'))
-
-    # ok = telems['aoacfct{}'.format(slot)].vals == 'TRAK'
-
-    flags = {'dp': telems['aoacidp%s' % slot].vals != 'OK ',
-             'ir': telems['aoaciir%s' % slot].vals != 'OK ',
-             'ms': telems['aoacims%s' % slot].vals != 'OK ',
-             'sp': telems['aoacisp%s' % slot].vals != 'OK ',
-             }
-
-    times = telems['aoacyan%s' % slot].times
-    dra = (coords['ra'] - np.mean(coords['ra'])) * 3600 * np.cos(np.radians(coords['dec']))
-    ddec = (coords['dec'] - np.mean(coords['dec'])) * 3600
-    dr = np.sqrt(dra ** 2 + ddec ** 2)
-
-    # fileroot = 'flags_{}'.format(DateTime(start).date[:14]) if save else None
-
-    # print('Making plots with output fileroot={}'.format(fileroot))
-
-    filt = ((flags['dp'] == False) & (flags['ir'] == False)
-            & (flags['ms'] == False) & (flags['sp'] == False))
-    if plot:
-        plot_axis('dR', times, dr, filt, title='No status flags')
-    if np.sum(filt) > 20:
-        clean_perc = np.percentile(dr[filt], [50, 84, 90, 95])
-        if clean_perc[2] > 1.0:
-            print '{} {} : {}'.format(start, stop, str(clean_perc))
-    else:
-        clean_perc = [-1, -1, -1, -1]
-    clean_perc.append(np.sum(filt))
-
-    filt = flags['dp'] == True
-    if plot:
-        plot_axis('dR', times, dr, filt, title='DP == True')
-    if np.sum(filt) > 20:
-        dp_perc = np.percentile(dr[filt], [50, 84, 90, 95])
-    else:
-        dp_perc = [-1, -1, -1, -1]
-    dp_perc.append(np.sum(filt))
-
-    return clean_perc, dp_perc
-
-
-def gather_stats(start, stop, slot=6, root=''):
-    cleans = []
-    dps = []
-    events.dwells.pad_interval = 300
-    for interval in events.dwells.intervals(start, stop):
-        clean, dp = plot_centroid_resids_by_flag(interval[0], interval[1], slot, plot=False)
-        cleans.append(clean)
-        dps.append(dp)
-        np.savez(root, np.array(cleans), np.array(dps))
-    cleans = np.array(cleans)
-    dps = np.array(dps)
-    return cleans, dps
-
-def plot_axis(label, times, dy, filt, title=''):
-    plt.figure(figsize=(6, 4))
-    plt.clf()
-
-    plot_cxctime(times, dy, 'r.', markersize=0.3)
-    if len(np.flatnonzero(filt)) > 0:
-        plot_cxctime(times[filt], dy[filt], 'k.', markersize=2)
-    plt.ylabel('Delta %s (arcsec)' % label)
-    plt.title(title)
-    plt.ylim(-10, 10)
-    plt.subplots_adjust(bottom=0.05, top=0.85)
-    plt.tight_layout()
+if __name__ == '__main__':
+    main()
