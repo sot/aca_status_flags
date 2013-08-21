@@ -1,6 +1,5 @@
 import cPickle as pickle
 import os
-import copy
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,30 +12,32 @@ logger = pyyaks.logger.get_logger(format='%(asctime)s: %(message)s')
 
 
 def time_slice_dat(dat, start, stop):
-    """
-    Return a copy of dat which is filtered to contain only times between
-    start and stop.
-    """
-    out = copy.deepcopy(dat)
-    slots = out['slots']
     tstart = DateTime(start).secs
     tstop = DateTime(stop).secs
 
-    times = out['times']['aoattqt1']
-    ok = (times > tstart) & (times < tstop)
-    for msid in update_flags_archive.ATT_MSIDS:
-        out['times'][msid] = out['times'][msid][ok]
-        out['vals'][msid] = out['vals'][msid][ok]
+    out = {}
+    out['time0'] = dat['time0']
+    out['times'] = {}
+    out['vals'] = {}
+    out['slots'] = dat['slots']
+    out['dyag'] = {}
+    out['dzag'] = {}
 
-    for slot in slots:
-        times = out['times']['aoacyan'][slot]
-        ok = (times > tstart) & (times < tstop)
+    for pcad_msid in update_flags_archive.PCAD_MSIDS:
+        out['times'][pcad_msid] = {}
+        out['vals'][pcad_msid] = {}
+
+    for slot in dat['slots']:
+        times = dat['times']['aoacyan'][slot]
+        i0, i1 = np.searchsorted(times, [tstart, tstop])
+        ok = slice(i0, i1)
+
         for pcad_msid in update_flags_archive.PCAD_MSIDS:
-            out['times'][pcad_msid][slot] = out['times'][pcad_msid][slot][ok]
-            out['vals'][pcad_msid][slot] = out['vals'][pcad_msid][slot][ok]
+            out['times'][pcad_msid][slot] = dat['times'][pcad_msid][slot][ok]
+            out['vals'][pcad_msid][slot] = dat['vals'][pcad_msid][slot][ok]
 
-        out['dyag'][slot] = out['dyag'][slot][ok]
-        out['dzag'][slot] = out['dzag'][slot][ok]
+        out['dyag'][slot] = dat['dyag'][slot][ok]
+        out['dzag'][slot] = dat['dzag'][slot][ok]
 
     return out
 
@@ -67,11 +68,13 @@ def get_obsid_data(obsid):
 
 
 def get_stats(val):
+    if len(val) < 20:
+        raise ValueError('Not enough')
     p16, p84 = np.percentile(val, [15.87, 84.13])
     sig = (p84 - p16) / 2
     std = np.std(val)
     mean = np.mean(val)
-    return mean, std, sig
+    return mean, std, sig, len(val)
 
 
 def plot_centroids(dat, sp=None, dp=None, ir=None, ms=None, slots=None):
@@ -92,8 +95,8 @@ def plot_centroids(dat, sp=None, dp=None, ir=None, ms=None, slots=None):
             dyag = dyag[ok]
             dzag = dzag[ok]
             plt.plot(times, dzag, '.', ms=2.0)
-            y_mean, y_std, y_sig = get_stats(dyag)
-            z_mean, z_std, z_sig = get_stats(dzag)
+            y_mean, y_std, y_sig, y_n = get_stats(dyag)
+            z_mean, z_std, z_sig, z_n = get_stats(dzag)
             logger.info('Slot {}: {} values: y_sig={:.2f} y_std={:.2f} z_sig={:.2f} z_std={:.2f}'
                         .format(slot, np.sum(ok), y_sig, y_std, z_sig, z_std))
         else:
@@ -104,31 +107,48 @@ def plot_centroids(dat, sp=None, dp=None, ir=None, ms=None, slots=None):
     plt.show()
 
 
-def plot_std_change(obsid, sp=None, dp=None, ir=None, ms=None, slots=None, n_samp=150):
+def get_stats_per_sample(obsid, sp=False, dp=False, ir=False, ms=False, slots=None, t_samp=300):
     dat = get_obsid_data(obsid)
-    plt.clf()
+    cases = ('obc', 'test')
+    stat_types = ('mean', 'std', 'sig', 'n')
+    all_stats = {case: {stat_type: [] for stat_type in stat_types} for case in cases}
+    stats = {}
+
     for slot in slots or dat['slots']:
         dyag = dat['dyag'][slot]
         dzag = dat['dzag'][slot]
+        times = dat['times']['aoacyan'][slot]
 
-        for i0, i1 in zip(np.arange(0, len(dy), n_samp)):
-            # Start with OBC flags
-            ok = get_flags_match(dat, slot, None, None, None, None)
-            ok[:i0] = False
-            ok[i1:] = False
-            dy = dyag[ok]
-            dz = dzag[ok]
-            y_mean, y_std, y_sig = get_stats(dy)
-            z_mean, z_std, z_sig = get_stats(dz)
+        sample_times = np.arange(times[0], times[-1], t_samp)
+        for t0, t1 in zip(sample_times[:-1], sample_times[1:]):
+            dat_slice = time_slice_dat(dat, t0, t1)
 
-            # REFACTOR and check for np.any(ok)
-            ok = get_flags_match(dat, slot, sp, dp, ir, ms)
-            ok[:i0] = False
-            ok[i1:] = False
-            dy = dyag[ok]
-            dz = dzag[ok]
-            y_mean, y_std, y_sig = get_stats(dy)
-            z_mean, z_std, z_sig = get_stats(dz)
+            for case in cases:
+                stats[case] = {stat_type: [] for stat_type in stat_types}
+                flags = (dict(sp=False, dp=False, ir=False, ms=False) if case == 'obc'
+                         else dict(sp=sp, dp=dp, ir=ir, ms=ms))
+                ok = get_flags_match(dat_slice, slot, **flags)
+                dy = dyag[ok]
+                dz = dzag[ok]
+                try:
+                    y_mean, y_std, y_sig, y_n = get_stats(dy)
+                    z_mean, z_std, z_sig, z_n = get_stats(dz)
+                except ValueError:
+                    logger.info('Too few values {} for case {} slot {} at t={:.0f}:{:.0f}'
+                                .format(len(dy), case, slot, t0, t1))
+                    break
+                stats[case]['mean'] = [y_mean, z_mean]
+                stats[case]['std'] = [y_std, z_std]
+                stats[case]['sig'] = [y_sig, z_sig]
+                stats[case]['n'] = [y_n]
+            else:
+                # None of the cases had too few values
+                for case in cases:
+                    for stat_type in stat_types:
+                        all_stats[case][stat_type].extend(stats[case][stat_type])
 
-            if not np.any(ok):
-                continue
+    for case in cases:
+        for stat_type in stat_types:
+            all_stats[case][stat_type] = np.array(all_stats[case][stat_type])
+
+    return all_stats
