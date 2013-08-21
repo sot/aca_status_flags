@@ -16,7 +16,7 @@ import Ska.Numpy
 
 logger = pyyaks.logger.get_logger(format='%(asctime)s: %(message)s')
 
-PCAD_MSIDS = ['aoacfct',
+SLOT_MSIDS = ['aoacfct',
               'aoacmag',
               'aoacisp',
               'aoacidp',
@@ -28,7 +28,20 @@ ATT_MSIDS = ['aoattqt1',
              'aoattqt2',
              'aoattqt3',
              'aoattqt4',
+             'aokalstr',
              ]
+
+
+def filter_bad(msid, bads):
+    """
+    Filter out any bad values from ``msid`` object.
+
+    :param bads: Bad values mask
+    """
+    if np.any(bads):
+        ok = ~bads
+        for colname in msid.colnames:
+            setattr(msid, colname, getattr(msid, colname)[ok])
 
 
 def get_archive_data(start, stop):
@@ -54,7 +67,7 @@ def get_archive_data(start, stop):
             slots.remove(ii)
     logger.info('Using slots {}'.format(slots))
 
-    slot_msids = [msid + "%s" % slot for msid in PCAD_MSIDS for slot in slots]
+    slot_msids = [msid + "%s" % slot for msid in SLOT_MSIDS for slot in slots]
     msids = slot_msids + ATT_MSIDS
 
     # Get telemetry
@@ -64,6 +77,8 @@ def get_archive_data(start, stop):
     stop_interp = min(telems[msid].times[-1] for msid in msids)
     logger.info('Interpolating at 2.05 sec intervals over {} to {}'
                 .format(DateTime(start_interp).date[:17], DateTime(stop_interp).date[:17]))
+
+    # Interpolate everything onto a common uniform time grid
     telems.interpolate(dt=2.05, start=start_interp, stop=stop_interp, filter_bad=False)
 
     # Select intervals within a kalman dwell with no tsc_moves or dumps
@@ -73,7 +88,7 @@ def get_archive_data(start, stop):
     for msid in telems:
         telems[msid].select_intervals(good_times)
 
-    # Create a bad filter for any samples with no attitude value
+    # Create a bad filter for any samples with no attitude or n-kalman value
     att_bads = np.zeros(len(telems[ATT_MSIDS[0]]), dtype=bool)
     for msid in ATT_MSIDS:
         att_bads |= telems[msid].bads
@@ -82,10 +97,19 @@ def get_archive_data(start, stop):
     logger.info('Attitude: found {} / {} bad values'
                 .format(np.sum(att_bads), len(att_bads)))
 
+    # Apply the att_bad filtering for each MSID invidivually (note that the
+    # MSIDset.filter_bad() method isn't appropriate here)
+    for msid in msids:
+        filter_bad(telems[msid], att_bads)
+
+    # Set global times to the times of first in MSIDset because they are all
+    # the same at this point
+    telems.times = telems[msids[0]].times
+
     # Create a bad filter for each slot based on the union of all relevant MSIDs
     for slot in slots:
-        slot_msids = [msid + "%s" % slot for msid in PCAD_MSIDS]
-        slot_bads = att_bads.copy()  # start with attitude bad values
+        slot_msids = [msid + "%s" % slot for msid in SLOT_MSIDS]
+        slot_bads = np.zeros(len(telems.times), dtype=bool)
         for msid in slot_msids:
             slot_bads |= telems[msid].bads
 
@@ -97,12 +121,52 @@ def get_archive_data(start, stop):
         logger.info('Slot {}: found {} / {} bad or not tracking values'
                     .format(slot, np.sum(slot_bads), len(slot_bads)))
 
-    # Finally apply the filtering for each MSID invidivually (note that the
-    # MSIDset.filter_bad() method isn't appropriate here).
-    for msid in msids:
-        telems[msid].filter_bad()
-
     return telems, slots
+
+
+def telems_to_struct(telems, slots):
+    """
+    Convert input MSIDset to an optimized data structure
+    """
+    out = {}
+    time0 = telems.times[0]
+    out['time0'] = time0
+    out['bads'] = {}
+    out['vals'] = {}
+    out['slots'] = slots
+    out['vals']['dyag'] = {}
+    out['vals']['dzag'] = {}
+
+    out['times'] = np.array(telems.times - time0, dtype=np.float32)
+
+    for msid in ATT_MSIDS:
+        out['vals'][msid] = telems[msid].vals
+
+    # Set bads array for each slot based the first of the SLOT_MSIDS (they
+    # all have the same bads array)
+    for slot in slots:
+        msid = SLOT_MSIDS[0] + str(slot)
+        out['bads'][slot] = telems[msid].bads
+
+    for slot_msid in SLOT_MSIDS:
+        out['vals'][slot_msid] = {}
+        for slot in slots:
+            msid = slot_msid + str(slot)
+            tlmsid = telems[msid]
+            out['vals'][slot_msid][slot] = (tlmsid.vals if tlmsid.raw_vals is None
+                                            else tlmsid.raw_vals)
+
+    for slot in slots:
+        dyag, dzag = calc_delta_centroids(telems, slot)
+        out['vals']['dyag'][slot] = np.array(dyag, dtype=np.float32)
+        out['vals']['dzag'][slot] = np.array(dzag, dtype=np.float32)
+        # Force large bad dy/z values at bad telemetry so any downstream
+        # filtering mistakes will be obvious
+        if np.any(out['bads'][slot]):
+            for axis in ('dyag', 'dzag'):
+                out['vals'][axis][slot][out['bads'][slot]] = -99999.0
+
+    return out
 
 
 def get_q_atts_transforms(telems, slot, dt):
@@ -186,36 +250,9 @@ def get_obsid(obsid, dt=3.0):
                 .format(','.join(str(dwell) for dwell in obsid_dwells)))
 
     telems, slots = get_archive_data(obsid_dwells[0].start, obsid_dwells[-1].stop)
+    out = telems_to_struct(telems, slots)
 
-    out = {}
-    time0 = telems.times[0]
-    out['time0'] = time0
-    out['times'] = {}
-    out['vals'] = {}
-    out['slots'] = slots
-    out['dyag'] = {}
-    out['dzag'] = {}
-
-    for msid in ATT_MSIDS:
-        out['times'][msid] = np.array(telems[msid].times - time0, dtype=np.float32)
-        out['vals'][msid] = telems[msid].vals
-
-    for pcad_msid in PCAD_MSIDS:
-        out['times'][pcad_msid] = {}
-        out['vals'][pcad_msid] = {}
-        for slot in slots:
-            msid = pcad_msid + str(slot)
-            out['times'][pcad_msid][slot] = np.array(telems[msid].times - time0, dtype=np.float32)
-            tlmsid = telems[msid]
-            out['vals'][pcad_msid][slot] = (tlmsid.vals if tlmsid.raw_vals is None
-                                            else tlmsid.raw_vals)
-
-    for slot in slots:
-        dyag, dzag = calc_delta_centroids(telems, slot, dt)
-        out['dyag'][slot] = np.array(dyag, dtype=np.float32)
-        out['dzag'][slot] = np.array(dzag, dtype=np.float32)
-
-    return out, telems
+    return out
 
 
 def process_obsids(start, stop):
@@ -262,4 +299,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    pass

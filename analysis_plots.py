@@ -20,15 +20,15 @@ def time_slice_dat(dat, start, stop):
     out['times'] = {}
     out['vals'] = {}
     out['slots'] = dat['slots']
-    out['dyag'] = {}
-    out['dzag'] = {}
+    out['vals']['dyag'] = {}
+    out['vals']['dzag'] = {}
 
     for pcad_msid in update_flags_archive.PCAD_MSIDS:
         out['times'][pcad_msid] = {}
         out['vals'][pcad_msid] = {}
 
     for slot in dat['slots']:
-        times = dat['times']['aoacyan'][slot]
+        times = dat['times']
         i0, i1 = np.searchsorted(times, [tstart, tstop])
         ok = slice(i0, i1)
 
@@ -43,7 +43,7 @@ def time_slice_dat(dat, start, stop):
 
 
 def get_flags_match(dat, slot, sp, dp, ir, ms):
-    ok = np.ones(len(dat['dyag'][slot]), dtype=bool)
+    ok = np.ones(len(dat['vals']['dyag'][slot]), dtype=bool)
     flag_vals = {'sp': sp, 'ir': ir, 'ms': ms, 'dp': dp}
     for flag in flag_vals:
         if flag_vals[flag] is not None:
@@ -60,7 +60,7 @@ def get_obsid_data(obsid):
         dat = pickle.load(open(filename, 'r'))
     else:
         import update_flags_archive
-        dat, telems = update_flags_archive.get_obsid(obsid)
+        dat = update_flags_archive.get_obsid(obsid)
         pickle.dump(dat, open(filename, 'w'), protocol=-1)
         logger.info('Wrote data for {}'.format(obsid))
 
@@ -86,12 +86,13 @@ def plot_centroids(dat, sp=None, dp=None, ir=None, ms=None, slots=None):
     """
     plt.clf()
     for slot in slots or dat['slots']:
-        dyag = dat['dyag'][slot]
-        dzag = dat['dzag'][slot]
+        dyag = dat['vals']['dyag'][slot]
+        dzag = dat['vals']['dzag'][slot]
         ok = get_flags_match(dat, slot, sp, dp, ir, ms)
 
         if np.any(ok):
-            times = dat['times']['aoacyan'][slot][ok]
+            ok = ok & ~dat['bads'][slot]
+            times = dat['times'][ok]
             dyag = dyag[ok]
             dzag = dzag[ok]
             plt.plot(times, dzag, '.', ms=2.0)
@@ -115,8 +116,8 @@ def get_stats_per_sample(obsid, sp=False, dp=False, ir=False, ms=False, slots=No
     stats = {}
 
     for slot in slots or dat['slots']:
-        dyag = dat['dyag'][slot]
-        dzag = dat['dzag'][slot]
+        dyag = dat['vals']['dyag'][slot]
+        dzag = dat['vals']['dzag'][slot]
         times = dat['times']['aoacyan'][slot]
 
         sample_times = np.arange(times[0], times[-1], t_samp)
