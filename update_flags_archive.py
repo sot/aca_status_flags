@@ -251,6 +251,7 @@ def get_obsid(obsid, dt=3.0):
 
     telems, slots = get_archive_data(obsid_dwells[0].start, obsid_dwells[-1].stop)
     out = telems_to_struct(telems, slots)
+    out['obsid'] = obsid
 
     return out
 

@@ -11,33 +11,34 @@ import pyyaks.logger
 logger = pyyaks.logger.get_logger(format='%(asctime)s: %(message)s')
 
 
-def time_slice_dat(dat, start, stop):
-    tstart = DateTime(start).secs
-    tstop = DateTime(stop).secs
+def time_slice_dat(dat, tstart, tstop):
+    """
+    Get a time slice from a status flags data structure.
 
+    :param tstart: start time in sec relative to dat['time0']
+    :param tstop: stop time in sec relative to dat['time0']
+
+    :returns: new status flags structure
+    """
     out = {}
     out['time0'] = dat['time0']
-    out['times'] = {}
     out['vals'] = {}
-    out['slots'] = dat['slots']
-    out['vals']['dyag'] = {}
-    out['vals']['dzag'] = {}
+    out['bads'] = {}
+    slots = out['slots'] = dat['slots']
 
-    for pcad_msid in update_flags_archive.PCAD_MSIDS:
-        out['times'][pcad_msid] = {}
-        out['vals'][pcad_msid] = {}
+    slot_msids = update_flags_archive.SLOT_MSIDS + ['dyag', 'dzag']
 
-    for slot in dat['slots']:
-        times = dat['times']
-        i0, i1 = np.searchsorted(times, [tstart, tstop])
-        ok = slice(i0, i1)
+    i0, i1 = np.searchsorted(dat['times'], [tstart, tstop])
+    i0_i1 = slice(i0, i1)
+    out['times'] = dat['times'][i0_i1]
 
-        for pcad_msid in update_flags_archive.PCAD_MSIDS:
-            out['times'][pcad_msid][slot] = dat['times'][pcad_msid][slot][ok]
-            out['vals'][pcad_msid][slot] = dat['vals'][pcad_msid][slot][ok]
+    for slot in slots:
+        out['bads'][slot] = dat['bads'][slot][i0_i1]
 
-        out['dyag'][slot] = dat['dyag'][slot][ok]
-        out['dzag'][slot] = dat['dzag'][slot][ok]
+    for slot_msid in slot_msids:
+        out['vals'][slot_msid] = {}
+        for slot in slots:
+            out['vals'][slot_msid][slot] = dat['vals'][slot_msid][slot][i0_i1]
 
     return out
 
@@ -104,33 +105,34 @@ def plot_centroids(dat, sp=None, dp=None, ir=None, ms=None, slots=None):
             logger.info('Slot {}: no data values selected')
     plt.grid()
     plt.ylim(-5.0, 5.0)
-    # plt.title('Obsid {} at {}'.format(obsid, DateTime(dat['time0']).date[:17]))
+    if 'obsid' in dat:
+        plt.title('Obsid {} at {}'.format(dat['obsid'], DateTime(dat['time0']).date[:17]))
     plt.show()
 
 
-def get_stats_per_sample(obsid, sp=False, dp=False, ir=False, ms=False, slots=None, t_samp=300):
-    dat = get_obsid_data(obsid)
+def get_stats_per_sample(dat, sp=False, dp=False, ir=False, ms=False, slots=None, t_samp=1000):
     cases = ('obc', 'test')
     stat_types = ('mean', 'std', 'sig', 'n')
     all_stats = {case: {stat_type: [] for stat_type in stat_types} for case in cases}
     stats = {}
+    times = dat['times']
 
     for slot in slots or dat['slots']:
-        dyag = dat['vals']['dyag'][slot]
-        dzag = dat['vals']['dzag'][slot]
-        times = dat['times']['aoacyan'][slot]
-
         sample_times = np.arange(times[0], times[-1], t_samp)
+
         for t0, t1 in zip(sample_times[:-1], sample_times[1:]):
             dat_slice = time_slice_dat(dat, t0, t1)
+            goods = ~dat_slice['bads'][slot]
 
             for case in cases:
                 stats[case] = {stat_type: [] for stat_type in stat_types}
                 flags = (dict(sp=False, dp=False, ir=False, ms=False) if case == 'obc'
                          else dict(sp=sp, dp=dp, ir=ir, ms=ms))
-                ok = get_flags_match(dat_slice, slot, **flags)
-                dy = dyag[ok]
-                dz = dzag[ok]
+                ok = get_flags_match(dat_slice, slot, **flags) & goods
+                dy = dat_slice['vals']['dyag'][slot][ok]
+                dz = dat_slice['vals']['dzag'][slot][ok]
+                if np.any(dy < -100):
+                    raise ValueError
                 try:
                     y_mean, y_std, y_sig, y_n = get_stats(dy)
                     z_mean, z_std, z_sig, z_n = get_stats(dz)
