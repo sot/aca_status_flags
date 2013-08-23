@@ -270,7 +270,7 @@ def process_obsids(start, stop):
             logger.info('**********************************')
 
         try:
-            dat, telems = get_obsid(obsid)
+            dat = get_obsid(obsid)
         except Exception as err:
             logger.error('ERROR in obsid {}: {}\n'.format(obsid, err))
             open(filename + '.ERR', 'w')
@@ -300,5 +300,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    pass
+    main()
