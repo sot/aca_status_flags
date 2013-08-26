@@ -5,10 +5,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 from Chandra.Time import DateTime
 import update_flags_archive
+from kadi import events
 
 import pyyaks.logger
+import pyyaks.context
 
 logger = pyyaks.logger.get_logger(format='%(asctime)s: %(message)s')
+
+ft = pyyaks.context.ContextDict('ft')
+files = pyyaks.context.ContextDict('files', basedir='data')
+files.update({'dat': '{ft.obsid}',
+              'stats': 'stats / {ft.sp} {ft.dp} {ft.ir} {ft.ms} {ft.t_samp} / {ft.obsid}'
+              })
 
 
 def time_slice_dat(dat, tstart, tstop):
@@ -110,12 +118,35 @@ def plot_centroids(dat, sp=None, dp=None, ir=None, ms=None, slots=None):
     plt.show()
 
 
-def get_stats_per_sample(dat, sp=False, dp=False, ir=False, ms=False, slots=None, t_samp=1000):
-    cases = ('obc', 'test')
-    stat_types = ('mean', 'std', 'sig', 'n')
-    all_stats = {case: {stat_type: [] for stat_type in stat_types} for case in cases}
+STAT_CASES = ('obc', 'test')
+STAT_TYPES = ('mean', 'std', 'sig', 'n')
+
+
+def get_stats_per_interval(dat, sp=False, dp=False, ir=False, ms=False, slots=None, t_samp=1000):
+    all_stats = {case: {stat_type: [] for stat_type in STAT_TYPES} for case in STAT_CASES}
     stats = {}
     times = dat['times']
+
+    flag_strs = {False: 'f', True: 't', None: 'x'}
+    ft['sp'] = flag_strs[sp]
+    ft['dp'] = flag_strs[dp]
+    ft['ir'] = flag_strs[ir]
+    ft['ms'] = flag_strs[ms]
+    ft['t_samp'] = str(t_samp)
+
+    dirspec = ''.join(flag_strs[x] for x in (sp, dp, ir, ms)) + str(t_samp)
+    rootdir = os.path.join('data', 'stats', dirspec)
+
+    # If this was already computed then return the on-disk version
+    outfile = os.path.join(rootdir, '{}.pkl'.format(dat['obsid']))
+    failfile = os.path.join(rootdir, '{}.ERR'.format(dat['obsid']))
+    if os.path.exists(outfile):
+        logger.info('Reading {}'.format(outfile))
+        all_stats = pickle.load(open(outfile, 'r'))
+        return all_stats
+
+    if os.path.exists(failfile):
+        raise ValueError('Known fail: file {} exists'.format(failfile))
 
     for slot in slots or dat['slots']:
         sample_times = np.arange(times[0], times[-1], t_samp)
@@ -124,8 +155,8 @@ def get_stats_per_sample(dat, sp=False, dp=False, ir=False, ms=False, slots=None
             dat_slice = time_slice_dat(dat, t0, t1)
             goods = ~dat_slice['bads'][slot]
 
-            for case in cases:
-                stats[case] = {stat_type: [] for stat_type in stat_types}
+            for case in STAT_CASES:
+                stats[case] = {stat_type: [] for stat_type in STAT_TYPES}
                 flags = (dict(sp=False, dp=False, ir=False, ms=False) if case == 'obc'
                          else dict(sp=sp, dp=dp, ir=ir, ms=ms))
                 ok = get_flags_match(dat_slice, slot, **flags) & goods
@@ -146,12 +177,53 @@ def get_stats_per_sample(dat, sp=False, dp=False, ir=False, ms=False, slots=None
                 stats[case]['n'] = [y_n]
             else:
                 # None of the cases had too few values
-                for case in cases:
-                    for stat_type in stat_types:
+                for case in STAT_CASES:
+                    for stat_type in STAT_TYPES:
                         all_stats[case][stat_type].extend(stats[case][stat_type])
 
-    for case in cases:
-        for stat_type in stat_types:
+    for case in STAT_CASES:
+        for stat_type in STAT_TYPES:
             all_stats[case][stat_type] = np.array(all_stats[case][stat_type])
 
+    # If this is a run with all slots included then save the results
+    if slots is None:
+        if not os.path.exists(rootdir):
+            os.makedirs(rootdir)
+        logger.info('Writing {}'.format(outfile))
+        pickle.dump(all_stats, open(outfile, 'w'), protocol=-1)
+
     return all_stats
+
+
+def get_stats_over_time(start, stop=None, sp=False, dp=False, ir=False, ms=False,
+                        slots=None, t_samp=1000):
+    """
+    Equivalent to get_stats_per_interval, but concatenate the results for all
+    obsids within the specified time interval.
+    """
+    # Get obsids in time range and collect all the per-interval statistics
+    obsids = events.obsids.filter(start, stop, dur__gt=2000)
+    stats_list = []
+    for obsid in obsids:
+        filename = os.path.join('data', str(obsid.obsid) + '.pkl')
+        if not os.path.exists(filename):
+            logger.info('Skipping {}: not in archive'.format(obsid))
+            continue
+        logger.info('Processing obsid {}'.format(obsid))
+        dat = pickle.load(open(filename, 'r'))
+        try:
+            stats = get_stats_per_interval(dat, sp, dp, ir, ms, slots, t_samp)
+            stats['obsid'] = obsid.obsid
+            stats_list.append(stats)
+        except ValueError as err:
+            errfile = filename[:-4] + '.ERR'
+            logger.warn('ERROR: {}'.format(err))
+
+    stats = {}
+    for case in STAT_CASES:
+        stats[case] = {}
+        for stat_type in STAT_TYPES:
+            stats[case][stat_type] = np.hstack([x[case][stat_type] for x in stats_list])
+    stats['obsid'] = np.hstack([np.ones(x['obc']['n'], dtype=int) for x in stats_list])
+
+    return stats
