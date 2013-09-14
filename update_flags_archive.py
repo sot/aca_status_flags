@@ -249,7 +249,15 @@ def get_obsid(obsid, dt=3.0):
     logger.info('Using obsid dwell(s): {}'
                 .format(','.join(str(dwell) for dwell in obsid_dwells)))
 
-    telems, slots = get_archive_data(obsid_dwells[0].start, obsid_dwells[-1].stop)
+    scs107s = events.scs107s.filter(obsid=obsid)
+    tstart = DateTime(obsid_dwells[0].start).secs
+    if len(scs107s) > 0:
+        tstop = scs107s[0].tstop - 200
+    else:
+        tstop = DateTime(obsid_dwells[-1].stop).secs
+    if tstop - tstart < 2000:
+        raise ValueError('Observation interval too short {}'.format(tstop - tstart))
+    telems, slots = get_archive_data(tstart, tstop)
     out = telems_to_struct(telems, slots)
     out['obsid'] = obsid
 

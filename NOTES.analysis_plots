@@ -1,0 +1,247 @@
+### Analysis of image status import 2010:001 to 2013:255
+
+% run -i analysis_plots.py
+
+stats_dp = get_stats_over_time('2010:001', dp=None)
+stats_dp_ms = get_stats_over_time('2010:001', dp=None, ms=None)
+
+plot_compare_stats_scatter(stats_dp, 'std', title='Stddev: No DP rejection',
+                     xlabel='OBC default stddev (arcsec)',
+                     ylabel='No DP stddev (arcsec)')
+
+bad = (stats_dp['test']['std'] > 2)
+bad_obsids = set(stats_dp['obsid'][bad])
+for obsid in bad_obsids:
+    pts = (stats_dp['test']['std'] > 2) & (stats_dp['obsid'] == obsid)
+    plot(stats_dp['obc']['std'][pts], stats_dp['test']['std'][pts], 's', label=str(obsid))
+
+legend(loc='lower right', fontsize='small')
+savefig('centr_stats_std_dp_scatter.png')
+
+plot_compare_stats_scatter(stats_dp_ms, 'std', title='Stddev: No DP,MS rejection',
+                     xlabel='OBC default stddev (arcsec)',
+                     ylabel='No DP,MS stddev (arcsec)',
+                     outroot='centr_stats_std_dp_ms')
+
+plot_compare_stats_hist(stats_dp, 'std',
+                     title='Stddev difference: No DP rejection',
+                     xlabel='OBC default - No DP (arcsec)',
+                     ylabel='Number',
+                     outroot='centr_stats_std_dp')
+
+plot_compare_stats_hist(stats_dp_ms, 'std',
+                     title='Stddev difference: No DP,MS rejection',
+                     xlabel='OBC default - No DP,MS (arcsec)',
+                     ylabel='Number',
+                     outroot='centr_stats_std_dp_ms')
+
+len(stats_dp['obsid'])
+198680
+
+##########################################################
+## Investigate outliers where stats_dp['test']['std'] > 2
+##########################################################
+
+In [149]: bad = (stats_dp['test']['std'] > 2)
+In [152]: set(stats_dp['obsid'][bad])
+Out[152]: set([53465, 54506, 12315, 53850, 54854])
+
+******** 53465: MUPS butterfly firing test
+
+>>> plot_centroids(53465)
+
+>>> events.major_events.filter('2013:220', '2013:240')
+Out[157]:
+<MajorEvent: 2013:231 (Aug-19) FDB: MUPS-B checkout (CAP 1287)>
+<MajorEvent: 2013:234 (Aug-22) FDB: CalDB 4.5.8 release>
+<MajorEvent: 2013:236 (Aug-24) FDB: MUPS swap>
+<MajorEvent: 2013:236 (Aug-24) FDB: MUPS swap (CAP 1290, FSW PR 331)>
+
+mv data/stats/fxff1000/53645.pkl          data/stats/fxff1000/53645.ERR
+mv data/stats/fxfx1000/53645.pkl          data/stats/fxfx1000/53645.ERR
+mv data/stats/ffxf1000/53645.pkl          data/stats/ffxf1000/53645.ERR
+mv data/stats/fffx1000/53645.pkl          data/stats/fffx1000/53645.ERR
+mv data/stats/xfff1000/53645.pkl          data/stats/xfff1000/53645.ERR
+mv data/stats/combined_fxff1000/53645.pkl data/stats/combined_fxff1000/53645.ERR
+mv data/stats/combined_fxfx1000/53645.pkl data/stats/combined_fxfx1000/53645.ERR
+
+
+******* 54506: Poster child for tracking a warm pixel
+
+This obs is just over 2 ksec, so there are two independent
+samples.  The stats include yag, zag pairs.
+
+In [160]: obs_ok = stats_dp['obsid'] == 54506
+
+In [161]: print stats_dp['obc']['std'][obs_ok]
+[ 0.66490742  1.97578113  0.53684792  2.24679969]  << y, z pairs here
+
+In [162]: print stats_dp['test']['std'][obs_ok]
+[ 0.64124689  1.88956294  0.5267274   2.18849177]
+# Actually *improves* a bit!
+
+In [163]: savefig('obs54506_track_warm_pixel.png')
+
+******* 12315  Jupiter moved through FOV and caused severe column spoiling
+
+(See emails "Jupiter observation guide stars" or just "12315" in gmail)
+
+In [212]: plot_centroids(12315)
+2013-09-13 16:01:54,514: Slot 3: 19561 values: y_sig=0.21 y_std=0.21 z_sig=0.23 z_std=0.30
+2013-09-13 16:01:54,524: Slot 4: 19508 values: y_sig=0.34 y_std=0.34 z_sig=0.51 z_std=0.56
+2013-09-13 16:01:54,533: Slot 5: 18582 values: y_sig=0.34 y_std=0.35 z_sig=0.27 z_std=0.33
+2013-09-13 16:01:54,541: Slot 6: 15828 values: y_sig=0.25 y_std=0.40 z_sig=1.06 z_std=1.61
+2013-09-13 16:01:54,549: Slot 7: 14226 values: y_sig=0.26 y_std=0.37 z_sig=1.25 z_std=1.62
+In [214]: bad = (stats_dp['test']['std'] > 2) & (stats_dp['obsid'] == 12315)
+
+In [213]: savefig('obs12315_jupiter_transit.png')
+
+# How much worse is just this obsid?
+
+In [214]: bad = (stats_dp['test']['std'] > 2) & (stats_dp['obsid'] == 12315)
+
+In [216]: stats_dp['obc']['std'][bad]
+Out[216]: array([ 1.97719607,  2.37094324,  2.48513583,  1.93894796])
+
+In [217]: stats_dp['test']['std'][bad]
+Out[217]: array([ 2.2267808 ,  2.8643393 ,  2.82636102,  2.29809231])
+
+******* 53850  Hot pixel
+A few intervals that are noticably worse because the hot pixel is
+allowed in more frequently
+
+In [221]: obs = stats_dp['obsid'] == 53850
+
+In [222]: stats_dp['obc']['std'][obs]
+Out[222]: 
+array([ 0.4584234 ,  0.89860913,  0.16828253,  0.25375126,  0.54665943,
+        1.10053991,  0.15790083,  0.61507264])
+
+In [223]: stats_dp['test']['std'][obs]
+Out[223]: 
+array([ 0.53221162,  2.04045777,  0.26310031,  0.98980967,  0.64474114,
+        1.81996914,  0.20737632,  1.08411906])
+
+# Make plots
+clf();plot_centroids(53850)
+ylim(-20, 5)
+savefig('obs53850_hot_pixel_obc.png')
+clf();plot_centroids(53850, dp=None)
+ylim(-20, 5)
+savefig('obs53850_hot_pixel_dp.png')
+
+$ convert -delay 100 obs53850*.png -loop 0 obs53850_anim.gif
+$ animate obs53850_anim.gif
+
+******* 54854  Hot pixel
+
+In [232]: obs = stats_dp['obsid'] == 54854
+In [233]: stats_dp['obc']['std'][obs]
+array([ 0.23642011,  0.17721819,  0.21531458,  0.15872477,  0.20276898,
+        0.16178943,  0.20764357,  0.14587398,  0.90854722,  0.6588091 ])
+
+In [234]: stats_dp['test']['std'][obs]
+array([ 0.23642011,  0.17721819,  0.21631502,  0.15836828,  0.20276898,
+        0.16178943,  0.20757012,  0.14669444,  2.82093454,  2.43947341])
+
+# Final 1 ksec interval is much worse
+
+clf();plot_centroids(54854)
+ylim(-25, 5)
+plot([0,6], [-20, -20], '--r', alpha=0.5)
+plot([0,6], [-20, -20], '--r')
+savefig('obs54854_hot_pixel.png')
+clf();plot_centroids(54854, dp=None)
+ylim(-25, 5)
+plot([0,6], [-20, -20], '--r')
+savefig('obs54854_hot_pixel_dp.png')
+
+$ convert -delay 100 obs54854*.png -loop 0 obs54854_anim.gif
+$ animate obs54854_anim.gif
+
+
+##########################################################
+## The original 56345 : apparently lots of centroid noise
+##########################################################
+
+http://asc.harvard.edu/mta/ASPECT/obc_kalman_stars/flags_centroids/
+
+dat = get_obsid_data(56345)
+
+plot_centroids(dat)
+savefig('obs56345_radiation.png')
+# Problems with getting plots exactly aligned, so remake plot
+# without clf()
+for line in ax.lines: line.remove()
+for line in ax.lines: line.remove()
+for line in ax.lines: line.remove()
+for line in ax.lines: line.remove()
+ax.lines
+draw()
+plot_centroids(dat, dp=None)
+savefig('obs56345_radiation_dp.png')
+
+plot_compare_stats_scatter(stats, 'std', title='Obs 56345 stddev: No DP',
+                     xlabel='OBC default stddev (arcsec)',
+                     ylabel='No DP stddev (arcsec)', outroot='obs56345_stats_std_dp.png')
+
+
+################################################################################
+# Impact on AOKALSTR (number of kalman stars)
+################################################################################
+
+dat = get_obsid_data(16314)
+print_flags(dat, '2013:254:08:54:00', '2013:254:08:56:10')
+
+2013:254:08:54:01.299 ....  ....  .I..  ....  ....
+2013:254:08:54:03.354 .I..  ....  ...D  ....  ....
+2013:254:08:54:05.400 ....  ....  ...D  ....  ....
+2013:254:08:54:07.455 .I..  ....  ...D  ....  ....
+2013:254:08:54:09.502 ....  ....  ...D  ....  ....
+2013:254:08:54:11.549 .IM.  ....  ...D  ....  ....
+2013:254:08:54:13.604 ....  ....  ...D  ....  ....
+2013:254:08:54:15.650 .I..  ....  ...D  ....  ....
+2013:254:08:54:17.705 ...D  ....  ...D  ....  ....
+2013:254:08:54:19.752 ...D  ....  ...D  ....  ....
+2013:254:08:54:21.799 ..MD  ....  ...D  ....  ....
+2013:254:08:54:23.854 ...D  .I..  ...D  ....  ....
+2013:254:08:54:25.900 ..MD  ....  ...D  ....  .I..
+2013:254:08:54:27.955 ..MD  .I..  ...D  ....  ...D
+2013:254:08:54:30.002 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:32.049 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:34.104 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:36.150 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:38.205 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:40.252 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:42.299 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:44.354 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:46.400 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:48.455 ..MD  ...D  ...D  ....  ...D
+2013:254:08:54:50.502 ...D  ...D  ...D  ....  ...D
+2013:254:08:54:52.549 ...D  ...D  ...D  ....  ...D
+2013:254:08:54:54.604 ...D  ...D  ...D  ....  ...D
+2013:254:08:54:56.650 ...D  ...D  ...D  ....  ...D
+2013:254:08:55:52.002 ....  ....  ....  ....  ....  << After re-acq gap all flags cleared!
+2013:254:08:55:54.049 ....  ....  ....  ....  ....
+2013:254:08:55:56.104 ....  ....  ....  ....  ....
+2013:254:08:55:58.150 ....  ....  ....  ....  ....
+2013:254:08:56:00.205 ....  ....  ....  ....  ....
+2013:254:08:56:02.252 ....  ....  ....  ....  ....
+2013:254:08:56:04.299 ....  ....  ....  ....  ....
+2013:254:08:56:06.354 ..M.  ....  ....  ....  ....
+2013:254:08:56:08.400 ..M.  ....  ....  ....  ....
+
+tlm_durs, pred_durs = get_kalman_predicted_over_time('2010:001', dp=None)
+figure(5, figsize=(5, 3.5))
+clf()
+hist(tlm_durs, bins=np.arange(1, 120, 2.05), log=True, label='OBC default')
+hist(pred_durs, bins=np.arange(1, 120, 2.05), log=True, label='Ingore DP')
+xlabel('Kalman drop duration (sec)')
+ylabel('Number')
+grid('on')
+title('Kalman drop intervals since 2010')
+legend(loc='upper right', fontsize='small')
+tight_layout()
+annotate('Re-acquisitions', xy=(85, 8), xytext=(40, 20),
+         arrowprops=dict(facecolor='black', width=1.5, headwidth=7, frac=0.1))
+savefig('kalman_drop_dp.png')
