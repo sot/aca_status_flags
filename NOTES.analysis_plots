@@ -1,9 +1,59 @@
+##########################################################
+### Analysis of image status 2014:001 to 2015:084
+##########################################################
+
+Update archive::
+
+  $ ./update_flags_archive.py --start 2014:001 --stop 2015:084 >& run.log &
+
+Analysis::
+
+  $ ipython --pylab
+
+  run -i analysis_plots.py
+  stats_dp_ms = get_stats_over_time('2014:001', dp=None, ms=None)
+
+  plot_compare_stats_scatter(stats_dp_ms, 'std', title='Stddev: No DP,MS rejection',
+                       xlabel='OBC default stddev (arcsec)',
+                       ylabel='No DP,MS stddev (arcsec)',
+                       outroot='centr_stats_std_dp_ms_2015')
+
+  plot_compare_stats_hist(stats_dp_ms, 'std',
+                       title='Stddev difference: No DP,MS rejection',
+                       xlabel='OBC default - No DP,MS (arcsec)',
+                       ylabel='Number',
+                       outroot='centr_stats_std_dp_ms_2015')
+
+# Analysis 2016:040
+
+  $ ./update_flags_archive.py --start 2015:084 --stop 2016:040 >& run.log &
+
+Analysis::
+
+  $ ipython --pylab
+
+  run -i analysis_plots.py
+  stats_ms = get_stats_over_time('2015:084', ms=None)
+
+  plot_compare_stats_scatter(stats_ms, 'std', title='Stddev: No MS rejection',
+                       xlabel='OBC default stddev (arcsec)',
+                       ylabel='No MS stddev (arcsec)',
+                       outroot='centr_stats_std_ms_2015')
+
+  plot_compare_stats_hist(stats_ms, 'std',
+                       title='Stddev difference: No MS rejection',
+                       xlabel='OBC default - No MS (arcsec)',
+                       ylabel='Number',
+                       outroot='centr_stats_std_ms_2015')
+
+##########################################################
 ### Analysis of image status import 2010:001 to 2013:255
+##########################################################
 
 % run -i analysis_plots.py
 
-stats_dp = get_stats_over_time('2010:001', dp=None)
-stats_dp_ms = get_stats_over_time('2010:001', dp=None, ms=None)
+stats_dp = get_stats_over_time('2014:001', dp=None)
+stats_dp_ms = get_stats_over_time('2014:001', dp=None, ms=None)
 
 plot_compare_stats_scatter(stats_dp, 'std', title='Stddev: No DP rejection',
                      xlabel='OBC default stddev (arcsec)',

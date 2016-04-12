@@ -90,7 +90,7 @@ def get_stats(val):
     return mean, std, sig, len(val)
 
 
-def plot_centroids(dat, sp=False, dp=False, ir=False, ms=False, slots=None, **kwargs):
+def plot_centroids(dat, sp=False, dp=None, ir=False, ms=False, slots=None, **kwargs):
     """
     The value of 3.0 was semi-empirically derived as the value which minimizes
     the centroid spreads for a few obsids.  It also corresponds roughly to
@@ -178,7 +178,7 @@ def get_cached_stats(root='stats'):
         raise NoStatsFile
 
 
-def get_stats_per_interval_per_slot(dat, sp=False, dp=False, ir=False, ms=False, slots=None,
+def get_stats_per_interval_per_slot(dat, sp=False, dp=None, ir=False, ms=False, slots=None,
                                     t_samp=1000):
     all_stats = {case: {stat_type: [] for stat_type in STAT_TYPES} for case in STAT_CASES}
     stats = {}
@@ -199,7 +199,7 @@ def get_stats_per_interval_per_slot(dat, sp=False, dp=False, ir=False, ms=False,
 
             for case in STAT_CASES:
                 stats[case] = {stat_type: [] for stat_type in STAT_TYPES}
-                flags = (dict(sp=False, dp=False, ir=False, ms=False) if case == 'obc'
+                flags = (dict(sp=False, dp=None, ir=False, ms=False) if case == 'obc'
                          else dict(sp=sp, dp=dp, ir=ir, ms=ms))
                 ok = get_flags_match(dat_slice, slot, **flags) & goods
                 dy = dat_slice['vals']['dyag'][slot][ok]
@@ -243,7 +243,7 @@ def get_stats_per_interval_per_slot(dat, sp=False, dp=False, ir=False, ms=False,
     return all_stats
 
 
-def get_stats_per_interval_combined(dat, sp=False, dp=False, ir=False, ms=False, t_samp=1000):
+def get_stats_per_interval_combined(dat, sp=False, dp=None, ir=False, ms=False, t_samp=1000):
     all_stats = {case: {stat_type: [] for stat_type in STAT_TYPES} for case in STAT_CASES}
     stats = {}
 
@@ -259,7 +259,7 @@ def get_stats_per_interval_combined(dat, sp=False, dp=False, ir=False, ms=False,
     for t0, t1 in zip(sample_times[:-1], sample_times[1:]):
         dat_slice = time_slice_dat(dat, t0, t1)
         for case in STAT_CASES:
-            flags = (dict(sp=False, dp=False, ir=False, ms=False) if case == 'obc'
+            flags = (dict(sp=False, dp=None, ir=False, ms=False) if case == 'obc'
                      else dict(sp=sp, dp=dp, ir=ir, ms=ms))
 
             stats[case] = {stat_type: [] for stat_type in STAT_TYPES}
@@ -311,7 +311,7 @@ def get_stats_per_interval_combined(dat, sp=False, dp=False, ir=False, ms=False,
     return all_stats
 
 
-def get_stats_over_time(start, stop=None, sp=False, dp=False, ir=False, ms=False,
+def get_stats_over_time(start, stop=None, sp=False, dp=None, ir=False, ms=False,
                         slots='combined', t_samp=1000):
     """
     Equivalent to get_stats_per_interval, but concatenate the results for all
@@ -449,7 +449,7 @@ def get_raw_vals(msid, vals):
     return raw_vals
 
 
-def get_kalman_predicted(dat, sp=False, dp=False, ir=False, ms=False):
+def get_kalman_predicted(dat, sp=False, dp=None, ir=False, ms=False):
     tlm_n_kalman = get_raw_vals('aokalstr', dat['vals']['aokalstr'])
     pred_n_kalman = np.zeros(len(dat['times']), dtype=np.int8)
     for slot in dat['slots']:
@@ -466,7 +466,7 @@ def get_kalman_predicted(dat, sp=False, dp=False, ir=False, ms=False):
     return tlm_n_kalman, pred_n_kalman, tlm_drops, pred_drops
 
 
-def get_kalman_predicted_over_time(start, stop=None, sp=False, dp=False, ir=False, ms=False):
+def get_kalman_predicted_over_time(start, stop=None, sp=False, dp=None, ir=False, ms=False):
     obsids = events.obsids.filter(start, stop, dur__gt=2000)
     tlm_durs = []
     pred_durs = []
