@@ -45,6 +45,8 @@ if 't' not in globals():
         next_obsids = []
         date = []
         time = []
+        datestop = []
+        timestop = []
         gui_ms = []
         manvr_angle = []
         manvr_slew_err = []
@@ -71,7 +73,9 @@ if 't' not in globals():
             next_obsids.append(n.get_obsid())
 
             date.append(d.manvr.kalman_start)
+            datestop.append(d.stop)
             time.append(DateTime(d.manvr.kalman_start).secs)
+            timestop.append(DateTime(d.stop).secs)
             kadi_one_shot.append(n.manvr.one_shot)
 
             obsids.append(obsid)
@@ -97,9 +101,9 @@ if 't' not in globals():
             aoatter3.append(np.degrees(np.percentile(np.abs(err['AOATTER3'].vals), 90)) * 3600)
 
 
-        t = Table([obsids, next_obsids, time, date, gui_ms, manvr_angle, manvr_slew_err,
+        t = Table([obsids, next_obsids, time, timestop, date, datestop, gui_ms, manvr_angle, manvr_slew_err,
                    kadi_one_shot, aoatter1, aoatter2, aoatter3],
-                  names=('obsid', 'next_obsid', 'time', 'date', 'gui_ms',
+                  names=('obsid', 'next_obsid', 'time', 'timestop', 'date', 'datestop', 'gui_ms',
                          'manvr_angle', 'manvr_slew_err',
                          'one_shot', 'roll_err', 'pitch_err', 'yaw_err'))
 
