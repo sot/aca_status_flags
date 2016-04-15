@@ -83,8 +83,11 @@ if 't' not in globals():
 
             for err_name, err_msid in zip(['roll_err', 'pitch_err', 'yaw_err'],
                                           ['AOATTER1', 'AOATTER2', 'AOATTER3']):
-                err = fetch.Msid(err_msid, d.start, d.stop)
-                obs[err_name] = np.degrees(np.percentile(np.abs(err.vals), 90)) * 3600
+                err = fetch.Msid(err_msid, d.tstart + 500, d.stop)
+                if len(err.vals):
+                    obs[err_name] = np.degrees(np.percentile(np.abs(err.vals), 90)) * 3600
+                else:
+                    obs[err_name] = np.nan
 
             obs_data.append(obs)
 
