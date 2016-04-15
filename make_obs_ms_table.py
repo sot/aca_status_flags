@@ -10,7 +10,7 @@ from Ska.engarchive import fetch
 
 
 if 'dwells' not in globals():
-    dwells = events.dwells.filter(start=DateTime() - 182)
+    dwells = events.dwells.filter(start='2015:287:12:22:55.309')
 
 # If MS filter table has not been made, fetch pcad0{pcad8eng} data
 # into /data/aca/archive/pcad8 with arc5gl.  Logic in the table making
@@ -41,21 +41,9 @@ if 't' not in globals():
     if os.path.exists('obs_ms_table.dat'):
         t = Table.read('obs_ms_table.dat', format='ascii')
     else:
-        obsids = []
-        next_obsids = []
-        date = []
-        time = []
-        datestop = []
-        timestop = []
-        gui_ms = []
-        manvr_angle = []
-        manvr_slew_err = []
-        kadi_one_shot = []
-        aoatter1 = []
-        aoatter2 = []
-        aoatter3 = []
-
+        obs_data = []
         for d in dwells:
+            obs = {}
             obsid = d.get_obsid()
             if obsid is None:
                 continue
@@ -68,44 +56,41 @@ if 't' not in globals():
             starcheck = get_starcheck_catalog(n.get_obsid())
             if not starcheck or not len(starcheck['manvr']):
                 continue
-            manvr_angle.append(starcheck['manvr'][-1]['angle_deg'])
-            manvr_slew_err.append(starcheck['manvr'][-1]['slew_err_arcsec'])
-            next_obsids.append(n.get_obsid())
+            obs['manvr_angle'] = starcheck['manvr'][-1]['angle_deg']
+            obs['manvr_slew_err'] =  starcheck['manvr'][-1]['slew_err_arcsec']
+            obs['next_obsid'] = n.get_obsid()
 
-            date.append(d.manvr.kalman_start)
-            datestop.append(d.stop)
-            time.append(DateTime(d.manvr.kalman_start).secs)
-            timestop.append(DateTime(d.stop).secs)
-            kadi_one_shot.append(n.manvr.one_shot)
-
-            obsids.append(obsid)
+            obs['date'] = d.manvr.kalman_start
+            obs['datestop'] = d.stop
+            obs['time'] = DateTime(d.manvr.kalman_start).secs
+            obs['timestop'] = d.tstop
+            obs['one_shot'] = n.manvr.one_shot
+            obs['obsid'] = obsid
 
             # for data earlier than the chunk of pcad data I have
             # just set the status manuall
             if d.manvr.kalman_start < '2016:001':
                 if (obsid == 17198) or (obsid == 18718):
-                    gui_ms.append('DISA')
+                    obs['gui_ms'] = 'DISA'
                 else:
-                    gui_ms.append('ENAB')
+                    obs['gui_ms'] = 'ENAB'
             else:
                 mid_kalman = ((DateTime(d.manvr.kalman_start).secs
                                + DateTime(d.stop).secs) / 2)
                 kal_idx = (np.searchsorted(mstable['TIME'],
                                            mid_kalman))
-                gui_ms.append(mstable['AOACIMSS'][kal_idx])
+                obs['gui_ms'] = mstable['AOACIMSS'][kal_idx]
 
-            err = fetch.MSIDset(['AOATTER1', 'AOATTER2', 'AOATTER3'],
-                                d.start, d.stop)
-            aoatter1.append(np.degrees(np.percentile(np.abs(err['AOATTER1'].vals), 90)) * 3600)
-            aoatter2.append(np.degrees(np.percentile(np.abs(err['AOATTER2'].vals), 90)) * 3600)
-            aoatter3.append(np.degrees(np.percentile(np.abs(err['AOATTER3'].vals), 90)) * 3600)
+            for err_name, err_msid in zip(['roll_err', 'pitch_err', 'yaw_err'],
+                                          ['AOATTER1', 'AOATTER2', 'AOATTER3']):
+                err = fetch.Msid(err_msid, d.start, d.stop)
+                obs[err_name] = np.degrees(np.percentile(np.abs(err.vals), 90)) * 3600
+
+            obs_data.append(obs)
 
 
-        t = Table([obsids, next_obsids, time, timestop, date, datestop, gui_ms, manvr_angle, manvr_slew_err,
-                   kadi_one_shot, aoatter1, aoatter2, aoatter3],
-                  names=('obsid', 'next_obsid', 'time', 'timestop', 'date', 'datestop', 'gui_ms',
-                         'manvr_angle', 'manvr_slew_err',
-                         'one_shot', 'roll_err', 'pitch_err', 'yaw_err'))
-
+        t = Table(obs_data)['obsid', 'next_obsid', 'time', 'timestop', 'date', 'datestop',
+                            'gui_ms', 'manvr_angle', 'manvr_slew_err', 'one_shot',
+                            'roll_err', 'pitch_err', 'yaw_err']
         t.write('obs_ms_table.dat', format='ascii')
 
