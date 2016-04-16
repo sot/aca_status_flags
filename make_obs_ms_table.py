@@ -84,6 +84,8 @@ if 't' not in globals():
             for err_name, err_msid in zip(['roll_err', 'pitch_err', 'yaw_err'],
                                           ['AOATTER1', 'AOATTER2', 'AOATTER3']):
                 err = fetch.Msid(err_msid, d.tstart + 500, d.stop)
+                events.dumps.interval_pad = (0, 300)
+                err.remove_intervals(events.dumps)
                 if len(err.vals):
                     obs[err_name] = np.degrees(np.percentile(np.abs(err.vals), 90)) * 3600
                 else:
