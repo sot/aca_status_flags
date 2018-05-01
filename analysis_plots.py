@@ -101,6 +101,7 @@ def plot_centroids(dat, sp=False, dp=None, ir=False, ms=None, slots=None, **kwar
     if isinstance(dat, int):
         dat = get_obsid_data(dat)
 
+    kalman_thresh = get_kalman_threshold(dat['times'][0])  # Time-dependent threshold (20 or 5)
     colors = ['b', 'g', 'r', 'c', 'm', 'BlueViolet', 'k', 'DarkOrange']
     for slot in slots or dat['slots']:
         dyag = dat['vals']['dyag'][slot]
@@ -116,7 +117,7 @@ def plot_centroids(dat, sp=False, dp=None, ir=False, ms=None, slots=None, **kwar
             dzag = dzag[ok]
             plt.plot(times / 1000., dzag, '.', color=colors[slot], **kwargs)
             try:
-                kalman_ok = (np.abs(dyag) < 20) & (np.abs(dzag) < 20)
+                kalman_ok = (np.abs(dyag) < kalman_thresh) & (np.abs(dzag) < kalman_thresh)
                 y_mean, y_std, y_sig, y_n = get_stats(dyag[kalman_ok])
                 z_mean, z_std, z_sig, z_n = get_stats(dzag[kalman_ok])
                 logger.info('Slot {}: {} values: y_sig={:.2f} y_std={:.2f} z_sig={:.2f} z_std={:.2f}'
@@ -246,6 +247,7 @@ def get_stats_per_interval_per_slot(dat, sp=False, dp=None, ir=False, ms=None, s
 def get_stats_per_interval_combined(dat, sp=False, dp=None, ir=False, ms=None, t_samp=1000):
     all_stats = {case: {stat_type: [] for stat_type in STAT_TYPES} for case in STAT_CASES}
     stats = {}
+    kalman_thresh = get_kalman_threshold(dat['times'][0])
 
     set_FILES_context(dat['obsid'], sp, dp, ir, ms, t_samp, 'combined')
     try:
@@ -277,8 +279,8 @@ def get_stats_per_interval_combined(dat, sp=False, dp=None, ir=False, ms=None, t
             if np.any((np.abs(dy) > 100) | (np.abs(dz) > 100)):
                 raise ValueError('Filtering inconsistency, unexpected bad values')
             try:
-                # OBC Kalman filter rejects stars outside 20 arcsec
-                ok = (np.abs(dy) < 20) & (np.abs(dz) < 20)
+                # OBC Kalman filter rejects stars outside threshold
+                ok = (np.abs(dy) < kalman_thresh) & (np.abs(dz) < kalman_thresh)
                 dy = dy[ok]
                 dz = dz[ok]
                 y_mean, y_std, y_sig, y_n = get_stats(dy)
@@ -449,12 +451,26 @@ def get_raw_vals(msid, vals):
     return raw_vals
 
 
+def get_kalman_threshold(time):
+    """
+    Kalman star measurement residual threshold was updated from 20 arcsec
+    to 5 arcsec on 2017-May-01 (2017:121) with PR-399.  This function returns
+    the appropriate value based on the provided ``time``.
+    """
+    t0 = DateTime(time).secs
+    out = 20.0 if (t0 < DateTime('2017:121').secs) else 5.0
+    return out
+
+
 def get_kalman_predicted(dat, sp=False, dp=None, ir=False, ms=None):
     tlm_n_kalman = get_raw_vals('aokalstr', dat['vals']['aokalstr'])
     pred_n_kalman = np.zeros(len(dat['times']), dtype=np.int8)
+    kalman_thresh = get_kalman_threshold(dat['times'][0])  # Time-dependent threshold (20 or 5)
+
     for slot in dat['slots']:
         flags_ok = get_flags_match(dat, slot, sp, dp, ir, ms)
-        pos_ok = (np.abs(dat['vals']['dyag'][slot]) < 20) & (np.abs(dat['vals']['dzag'][slot]) < 20)
+        pos_ok = ((np.abs(dat['vals']['dyag'][slot]) < kalman_thresh) &
+                  (np.abs(dat['vals']['dzag'][slot]) < kalman_thresh))
         tlm_ok = ~dat['bads'][slot]
         pred_n_kalman += flags_ok & pos_ok & tlm_ok
 

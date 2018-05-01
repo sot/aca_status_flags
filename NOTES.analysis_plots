@@ -16,7 +16,26 @@ Update archive::
 
   $ ./update_flags_archive.py --start 2014:001 --stop 2015:084 >& run.log &
 
-Analysis::
+
+Analysis for IR disable (May 2018)::
+
+  $ ipython --pylab
+
+  run -i analysis_plots.py
+  stats_ir = get_stats_over_time('2015:001', ir=None)
+
+  plot_compare_stats_scatter(stats_ir, 'std', title='Stddev: No IR rejection',
+                       xlabel='OBC default stddev (arcsec)',
+                       ylabel='No IR stddev (arcsec)',
+                       outroot='centr_stats_std_ir_2018')
+
+  plot_compare_stats_hist(stats_ir, 'std',
+                       title='Stddev difference: No IR rejection',
+                       xlabel='OBC default - No IR (arcsec)',
+                       ylabel='Number',
+                       outroot='centr_stats_std_ir_2018')
+
+Analysis for MS disable::
 
   $ ipython --pylab
 
