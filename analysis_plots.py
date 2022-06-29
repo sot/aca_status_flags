@@ -1,6 +1,4 @@
-from __future__ import division
-
-import cPickle as pickle
+import pickle
 import os
 import operator
 
@@ -511,7 +509,7 @@ def print_flags(dat, start, stop):
             out = ''.join(flag[-2].upper() if dat['vals'][flag][slot][ii] else '.'
                           for flag in ('aoacisp', 'aoaciir', 'aoacims', 'aoacidp'))
             outs.append(out)
-        print '{} {}'.format(DateTime(dat['times'][ii] + dat['time0']).date, '  '.join(outs))
+        print('{} {}'.format(DateTime(dat['times'][ii] + dat['time0']).date, '  '.join(outs)))
 
 
 def logical_intervals(times, vals, op, val):

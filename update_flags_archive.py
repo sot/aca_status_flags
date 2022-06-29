@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
-from __future__ import division
-
-import cPickle as pickle
+import pickle
 import os
 
 import numpy as np
